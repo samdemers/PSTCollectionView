@@ -15,7 +15,7 @@
     NSInteger _numItems;
     NSInteger _numSections;
     NSInteger *_sectionItemCounts;
-    NSArray *_globalItems; // Apple uses id *_globalItems; - a C array?
+    NSMutableArray *_globalItems; // Apple uses id *_globalItems; - a C array?
 
 /*
  // At this point, I've no idea how _screenPageDict is structured. Looks like some optimization for layoutAttributesForElementsInRect.
@@ -55,7 +55,7 @@
 
 - (id)initWithCollectionView:(PSTCollectionView *)collectionView layout:(PSTCollectionViewLayout *)layout {
     if((self = [super init])) {
-        _globalItems = [NSArray new];
+        _globalItems = [NSMutableArray new];
         _collectionView = collectionView;
         _layout = layout;
     }
@@ -185,11 +185,28 @@
         _sectionItemCounts[i] = cellCount;
         _numItems += cellCount;
     }
-    NSMutableArray* globalIndexPaths = [[NSMutableArray alloc] initWithCapacity:_numItems];
-    for(NSInteger section = 0;section<_numSections;section++)
-        for(NSInteger item=0;item<_sectionItemCounts[section];item++)
-            [globalIndexPaths addObject:[NSIndexPath indexPathForItem:item inSection:section]];
-    _globalItems = [NSArray arrayWithArray:globalIndexPaths];
+    
+    NSInteger count = _globalItems.count;
+    if (count > _numItems) {
+        NSRange removeRange = NSMakeRange(_numItems, count-_numItems);
+        [_globalItems removeObjectsInRange:removeRange];
+    }
+
+    NSInteger itemIndex = 0;
+    for (NSInteger section = 0; section < _numSections; section++) {
+        for (NSInteger item = 0; item < _sectionItemCounts[section]; item++) {
+            if (itemIndex >= count) {
+                [_globalItems addObject:[NSIndexPath indexPathForItem:item inSection:section]];
+            } else {
+                NSIndexPath *indexPath = [_globalItems objectAtIndex:itemIndex];
+                if (indexPath.item != item || indexPath.section != section) {
+                    [_globalItems replaceObjectAtIndex:itemIndex withObject:[NSIndexPath indexPathForItem:item inSection:section]];
+                }
+            }
+            itemIndex++;
+        }
+    }
+
     _collectionViewDataFlags.itemCountsAreValid = YES;
 }
 
