@@ -15,7 +15,8 @@
     NSInteger _numItems;
     NSInteger _numSections;
     NSInteger *_sectionItemCounts;
-    NSMutableArray *_globalItems; // Apple uses id *_globalItems; - a C array?
+    id __strong *_globalItems;
+    NSUInteger _globalItemsAllocated;
 
 /*
  // At this point, I've no idea how _screenPageDict is structured. Looks like some optimization for layoutAttributesForElementsInRect.
@@ -55,7 +56,9 @@
 
 - (id)initWithCollectionView:(PSTCollectionView *)collectionView layout:(PSTCollectionViewLayout *)layout {
     if((self = [super init])) {
-        _globalItems = [NSMutableArray new];
+        _globalItems = (void*)0;
+        _globalItemsAllocated = 0;
+        _numItems = 0;
         _collectionView = collectionView;
         _layout = layout;
     }
@@ -64,10 +67,16 @@
 
 - (void)dealloc {
     if(_sectionItemCounts) free(_sectionItemCounts);
+    if(_globalItems) {
+        for (NSUInteger i = 0; i < _globalItemsAllocated; i++) {
+            _globalItems[i] = nil;
+        }
+        free(_globalItems);
+    }
 }
 
 - (NSString *)description {
-    return [NSString stringWithFormat:@"<%@: %p numItems:%d numSections:%d globalItems:%@>", NSStringFromClass([self class]), self, self.numberOfItems, self.numberOfSections, _globalItems];
+    return [NSString stringWithFormat:@"<%@: %p numItems:%d numSections:%d>", NSStringFromClass([self class]), self, self.numberOfItems, self.numberOfSections];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -130,7 +139,12 @@
 }
 
 - (NSInteger)globalIndexForItemAtIndexPath:(NSIndexPath *)indexPath {
-    return [_globalItems indexOfObject:indexPath];
+    for (NSInteger i = 0; i < _numItems; ++i) {
+        if ([_globalItems[i] isEqual:indexPath]) {
+            return i;
+        }
+    }
+    return NSNotFound;
 }
 
 - (BOOL)layoutIsPrepared {
@@ -186,22 +200,26 @@
         _numItems += cellCount;
     }
     
-    NSInteger count = _globalItems.count;
-    if (count > _numItems) {
-        NSRange removeRange = NSMakeRange(_numItems, count-_numItems);
-        [_globalItems removeObjectsInRange:removeRange];
+    if (_numItems > _globalItemsAllocated) {
+        for (NSUInteger i = 0; i < _globalItemsAllocated; i++) {
+            _globalItems[i] = nil;
+        }
+        free(_globalItems);
+        _globalItems = 0;
+    }
+    
+    if (!_globalItems) {
+        _globalItems = (id __strong *)calloc(sizeof(id), _numItems);
+        _globalItemsAllocated = _numItems;
     }
 
     NSInteger itemIndex = 0;
     for (NSInteger section = 0; section < _numSections; section++) {
         for (NSInteger item = 0; item < _sectionItemCounts[section]; item++) {
-            if (itemIndex >= count) {
-                [_globalItems addObject:[NSIndexPath indexPathForItem:item inSection:section]];
-            } else {
-                NSIndexPath *indexPath = [_globalItems objectAtIndex:itemIndex];
-                if (indexPath.item != item || indexPath.section != section) {
-                    [_globalItems replaceObjectAtIndex:itemIndex withObject:[NSIndexPath indexPathForItem:item inSection:section]];
-                }
+            if (((NSIndexPath *)_globalItems[itemIndex]).item != item ||
+                ((NSIndexPath *)_globalItems[itemIndex]).section != section)
+            {
+                _globalItems[itemIndex] = [NSIndexPath indexPathForItem:item inSection:section];
             }
             itemIndex++;
         }
